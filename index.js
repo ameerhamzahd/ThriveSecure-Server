@@ -26,6 +26,30 @@ async function run() {
 
         // Database Initializing
         const usersCollection = client.db('ThriveSecureDB').collection('users');
+        const newsletterSubscriptionsCollection = client.db('ThriveSecureDB').collection('newsletterSubscriptions');
+
+        // Newsletter Subscription
+        // Posting a Newsletter Subscription
+        app.post('/newsletter-subscriptions', async (req, res) => {
+            const { name, email, subscribedAt } = req.body;
+
+            if (!name || !email) {
+                return res.status(400).json({ message: "Name and email are required." });
+            }
+
+            const existing = await newsletterSubscriptionsCollection.findOne({ email });
+            if (existing) {
+                return res.status(400).json({ message: "This email is already subscribed." });
+            }
+
+            const result = await newsletterSubscriptionsCollection.insertOne({
+                name,
+                email,
+                subscribedAt: subscribedAt || new Date().toISOString(),
+            });
+
+            res.json({ success: true, insertedId: result.insertedId });
+        });
 
         //USERS
         // Posting a User
@@ -47,9 +71,6 @@ async function run() {
             const result = await usersCollection.insertOne(user);
             res.send(result);
         });
-
-        
-
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
