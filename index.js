@@ -31,6 +31,7 @@ async function run() {
         const usersCollection = client.db('ThriveSecureDB').collection('users');
         const applicationsCollection = client.db('ThriveSecureDB').collection('applications');
         const policiesCollection = client.db('ThriveSecureDB').collection('policies');
+        const transactionsCollection = client.db('ThriveSecureDB').collection('transactions');
 
         // NEWSLETTER SUBSCRIPTION
 
@@ -226,62 +227,135 @@ async function run() {
 
         // Get Policies (with Pagination)
         app.get("/policies", async (req, res) => {
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 5;
+            const skip = (page - 1) * limit;
+
+            const total = await policiesCollection.countDocuments();
+            const policies = await policiesCollection
+                .find({})
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
+
+            res.json({
+                policies,
+                total,
+                totalPages: Math.ceil(total / limit),
+                currentPage: page,
+            });
+        });
+
+        // Add New Policy
+        app.post("/policies", async (req, res) => {
+            const newPolicy = { ...req.body, createdAt: new Date() };
+            const result = await policiesCollection.insertOne(newPolicy);
+            res.status(201).json({ insertedId: result.insertedId });
+        });
+
+        // Update Policy
+        app.patch("/policies/:id", async (req, res) => {
+            const { id } = req.params;
+            const updatedPolicy = req.body;
+
+            const result = await policiesCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: updatedPolicy }
+            );
+
+            if (result.modifiedCount === 0) {
+                return res.status(404).json({ error: "Policy not found or unchanged" });
+            }
+
+            res.json({ message: "Policy updated successfully" });
+        });
+
+        // Delete Policy
+        app.delete("/policies/:id", async (req, res) => {
+            const { id } = req.params;
+
+            const result = await policiesCollection.deleteOne({ _id: new ObjectId(id) });
+
+            if (result.deletedCount === 0) {
+                return res.status(404).json({ error: "Policy not found" });
+            }
+
+            res.json({ message: "Policy deleted successfully" });
+        });
+
+        // MANAGE TRANSACTIONS
+
+        // GET /transactions with filters, pagination
+        app.get("/transactions", async (req, res) => {
                 const page = parseInt(req.query.page) || 1;
                 const limit = parseInt(req.query.limit) || 5;
                 const skip = (page - 1) * limit;
 
-                const total = await policiesCollection.countDocuments();
-                const policies = await policiesCollection
-                    .find({})
-                    .sort({ createdAt: -1 })
+                const { startDate, endDate, user, policy } = req.query;
+
+                const filter = {};
+
+                if (startDate && endDate) {
+                    filter.date = {
+                        $gte: new Date(startDate),
+                        $lte: new Date(endDate),
+                    };
+                }
+
+                if (user) {
+                    filter.userEmail = { $regex: new RegExp(user, "i") };
+                }
+
+                if (policy) {
+                    filter.policyName = { $regex: new RegExp(policy, "i") };
+                }
+
+                const totalCount = await transactionsCollection.countDocuments(filter);
+                const totalPages = Math.ceil(totalCount / limit);
+
+                const transactions = await transactionsCollection
+                    .find(filter)
+                    .sort({ date: -1 })
                     .skip(skip)
                     .limit(limit)
                     .toArray();
 
                 res.json({
-                    policies,
-                    total,
-                    totalPages: Math.ceil(total / limit),
-                    currentPage: page,
+                    transactions,
+                    totalPages,
                 });
         });
 
-        // Add New Policy
-        app.post("/policies", async (req, res) => {
-                const newPolicy = { ...req.body, createdAt: new Date() };
-                const result = await policiesCollection.insertOne(newPolicy);
-                res.status(201).json({ insertedId: result.insertedId });
+        // GET /transactions/summary
+        app.get("/transactions/summary", async (req, res) => {
+            const now = new Date();
+            const thirtyDaysAgo = new Date(now);
+            thirtyDaysAgo.setDate(now.getDate() - 30);
+
+            const totalIncome = await transactionsCollection.aggregate([
+                { $match: { status: "Success" } },
+                { $group: { _id: null, total: { $sum: "$amount" } } }
+            ]).toArray();
+
+            const last30DaysTransactions = await transactionsCollection.find({
+                date: { $gte: thirtyDaysAgo }
+            }).toArray();
+
+            const total = last30DaysTransactions.length || 1;
+            const successCount = last30DaysTransactions.filter(txn => txn.status === "Success").length;
+            const failCount = last30DaysTransactions.filter(txn => txn.status === "Failed").length;
+
+            const successRate = ((successCount / total) * 100).toFixed(2);
+            const failRate = ((failCount / total) * 100).toFixed(2);
+
+            res.json({
+                totalIncome: totalIncome[0]?.total || 0,
+                successRate: parseFloat(successRate),
+                failRate: parseFloat(failRate)
+            });
         });
 
-        // Update Policy
-        app.patch("/policies/:id", async (req, res) => {
-                const { id } = req.params;
-                const updatedPolicy = req.body;
-
-                const result = await policiesCollection.updateOne(
-                    { _id: new ObjectId(id) },
-                    { $set: updatedPolicy }
-                );
-
-                if (result.modifiedCount === 0) {
-                    return res.status(404).json({ error: "Policy not found or unchanged" });
-                }
-
-                res.json({ message: "Policy updated successfully" });
-        });
-
-        // Delete Policy
-        app.delete("/policies/:id", async (req, res) => {
-                const { id } = req.params;
-
-                const result = await policiesCollection.deleteOne({ _id: new ObjectId(id) });
-
-                if (result.deletedCount === 0) {
-                    return res.status(404).json({ error: "Policy not found" });
-                }
-
-                res.json({ message: "Policy deleted successfully" });
-        });
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
