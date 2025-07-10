@@ -26,13 +26,13 @@ async function run() {
         // Connect the client to the server	(optional starting in v4.7)
         await client.connect();
 
-        // Database Initializing
+        // DATABASE INITIALIZING
         const newsletterSubscriptionsCollection = client.db('ThriveSecureDB').collection('newsletterSubscriptions');
         const usersCollection = client.db('ThriveSecureDB').collection('users');
         const applicationsCollection = client.db('ThriveSecureDB').collection('applications');
 
+        // NEWSLETTER SUBSCRIPTION
 
-        // Newsletter Subscription
         // Posting a Newsletter Subscription
         app.post('/newsletter-subscriptions', async (req, res) => {
             const { name, email, subscribedAt } = req.body;
@@ -149,6 +149,44 @@ async function run() {
                 }
             );
             res.send(result);
+        });
+
+        // MANAGE USERS
+
+        // GET all users
+        app.get("/users", async (req, res) => {
+            const users = await usersCollection.find().sort({ createdAt: -1 }).toArray();
+            res.json(users);
+        });
+
+        // PATCH update user role
+        app.patch("/users/:id/role", async (req, res) => {
+            const { id } = req.params;
+            const { role } = req.body;
+            if (!["customer", "agent", "admin"].includes(role)) {
+                return res.status(400).json({ message: "Invalid role provided." });
+            }
+
+            const result = await usersCollection.findOneAndUpdate(
+                { _id: new ObjectId(id) },
+                { $set: { role: role } },
+                { returnDocument: "after" }
+            );
+            if (!result.value) {
+                return res.status(404).json({ message: "User not found." });
+            }
+            res.json(result.value);
+        });
+
+        // DELETE user
+        app.delete("users/:id", async (req, res) => {
+            const { id } = req.params;
+
+            const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+            if (result.deletedCount === 0) {
+                return res.status(404).json({ message: "User not found." });
+            }
+            res.json({ message: "User deleted successfully." });
         });
 
         // Send a ping to confirm a successful connection
