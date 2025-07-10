@@ -4,7 +4,7 @@ const Stripe = require('stripe');
 const app = express();
 require("dotenv").config();
 const port = process.env.PORT || 3000;
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 app.use(cors());
 app.use(express.json());
@@ -30,6 +30,7 @@ async function run() {
         const newsletterSubscriptionsCollection = client.db('ThriveSecureDB').collection('newsletterSubscriptions');
         const usersCollection = client.db('ThriveSecureDB').collection('users');
         const applicationsCollection = client.db('ThriveSecureDB').collection('applications');
+        const policiesCollection = client.db('ThriveSecureDB').collection('policies');
 
         // NEWSLETTER SUBSCRIPTION
 
@@ -109,13 +110,29 @@ async function run() {
         // MANAGE APPLICATIONS
 
         // GET all applications
-        app.get("/admin/applications", async (req, res) => {
-            const applications = await applicationsCollection.find().toArray();
-            res.send(applications);
+        app.get("/applications", async (req, res) => {
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 10;
+            const skip = (page - 1) * limit;
+
+            const totalCount = await applicationsCollection.countDocuments();
+            const totalPages = Math.ceil(totalCount / limit);
+
+            const applications = await applicationsCollection
+                .find()
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
+
+            res.send({
+                applications,
+                totalPages,
+            });
         });
 
         // PATCH reject application
-        app.patch("/admin/applications/:id/reject", async (req, res) => {
+        app.patch("/applications/:id/reject", async (req, res) => {
             const { id } = req.params;
             const result = await applicationsCollection.updateOne(
                 { _id: new ObjectId(id) },
@@ -130,7 +147,7 @@ async function run() {
         });
 
         // PATCH assign agent to application
-        app.patch("/admin/applications/:id/assign", async (req, res) => {
+        app.patch("/applications/:id/assign", async (req, res) => {
             const { id } = req.params;
             const { agentEmail } = req.body;
 
@@ -155,8 +172,24 @@ async function run() {
 
         // GET all users
         app.get("/users", async (req, res) => {
-            const users = await usersCollection.find().sort({ createdAt: -1 }).toArray();
-            res.json(users);
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 5;
+            const skip = (page - 1) * limit;
+
+            const totalCount = await usersCollection.countDocuments();
+            const totalPages = Math.ceil(totalCount / limit);
+
+            const users = await usersCollection
+                .find()
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
+
+            res.json({
+                users,
+                totalPages,
+            });
         });
 
         // PATCH update user role
@@ -167,19 +200,19 @@ async function run() {
                 return res.status(400).json({ message: "Invalid role provided." });
             }
 
-            const result = await usersCollection.findOneAndUpdate(
+            const result = await usersCollection.updateOne(
                 { _id: new ObjectId(id) },
-                { $set: { role: role } },
-                { returnDocument: "after" }
+                { $set: { role: role } }
             );
-            if (!result.value) {
+
+            if (result.matchedCount === 0) {
                 return res.status(404).json({ message: "User not found." });
             }
-            res.json(result.value);
+            res.json({ success: true, modifiedCount: result.modifiedCount });
         });
 
         // DELETE user
-        app.delete("users/:id", async (req, res) => {
+        app.delete("/users/:id", async (req, res) => {
             const { id } = req.params;
 
             const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
@@ -187,6 +220,67 @@ async function run() {
                 return res.status(404).json({ message: "User not found." });
             }
             res.json({ message: "User deleted successfully." });
+        });
+
+        // MANAGE POLICIES
+
+        // Get Policies (with Pagination)
+        app.get("/policies", async (req, res) => {
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 5;
+                const skip = (page - 1) * limit;
+
+                const total = await policiesCollection.countDocuments();
+                const policies = await policiesCollection
+                    .find({})
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.json({
+                    policies,
+                    total,
+                    totalPages: Math.ceil(total / limit),
+                    currentPage: page,
+                });
+        });
+
+        // Add New Policy
+        app.post("/policies", async (req, res) => {
+                const newPolicy = { ...req.body, createdAt: new Date() };
+                const result = await policiesCollection.insertOne(newPolicy);
+                res.status(201).json({ insertedId: result.insertedId });
+        });
+
+        // Update Policy
+        app.patch("/policies/:id", async (req, res) => {
+                const { id } = req.params;
+                const updatedPolicy = req.body;
+
+                const result = await policiesCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: updatedPolicy }
+                );
+
+                if (result.modifiedCount === 0) {
+                    return res.status(404).json({ error: "Policy not found or unchanged" });
+                }
+
+                res.json({ message: "Policy updated successfully" });
+        });
+
+        // Delete Policy
+        app.delete("/policies/:id", async (req, res) => {
+                const { id } = req.params;
+
+                const result = await policiesCollection.deleteOne({ _id: new ObjectId(id) });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).json({ error: "Policy not found" });
+                }
+
+                res.json({ message: "Policy deleted successfully" });
         });
 
         // Send a ping to confirm a successful connection
