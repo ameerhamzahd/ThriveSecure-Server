@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const Stripe = require('stripe');
 const app = express();
 require("dotenv").config();
 const port = process.env.PORT || 3000;
@@ -9,6 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DATABASE_USERNAME}:${process.env.DATABASE_PASSWORD}@thrivesecure.x2ofshd.mongodb.net/?retryWrites=true&w=majority&appName=ThriveSecure`;
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -25,8 +27,10 @@ async function run() {
         await client.connect();
 
         // Database Initializing
-        const usersCollection = client.db('ThriveSecureDB').collection('users');
         const newsletterSubscriptionsCollection = client.db('ThriveSecureDB').collection('newsletterSubscriptions');
+        const usersCollection = client.db('ThriveSecureDB').collection('users');
+        const applicationsCollection = client.db('ThriveSecureDB').collection('applications');
+
 
         // Newsletter Subscription
         // Posting a Newsletter Subscription
@@ -52,6 +56,7 @@ async function run() {
         });
 
         //USERS
+
         // Posting a User
         app.post("/users", async (req, res) => {
             const email = req.body.email;
@@ -72,17 +77,78 @@ async function run() {
             res.send(result);
         });
 
-        // GET /users/:email/role
-        app.get("/users/:email/role", async (req, res) => {
+        // GET /users/:email
+        app.get("/users/:email", async (req, res) => {
             const email = req.params.email;
 
             const user = await usersCollection.findOne({ email });
 
             if (!user) {
-                return res.status(404).json({ error: "User not found" });
+                return res.status(404).json({ message: "User not found" });
             }
 
-            res.status(200).json({ role: user.role || "customer" });
+            res.json(user);
+        });
+
+        //   PAYMENT
+
+        // Stripe Setup
+        app.post('/create-payment-intent', async (req, res) => {
+            const { amount, currency } = req.body; // amount in cents, e.g., 5000 = $50
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount,
+                currency,
+                payment_method_types: ['card'],
+            });
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
+        });
+
+        // MANAGE APPLICATIONS
+
+        // GET all applications
+        app.get("/admin/applications", async (req, res) => {
+            const applications = await applicationsCollection.find().toArray();
+            res.send(applications);
+        });
+
+        // PATCH reject application
+        app.patch("/admin/applications/:id/reject", async (req, res) => {
+            const { id } = req.params;
+            const result = await applicationsCollection.updateOne(
+                { _id: new ObjectId(id) },
+                {
+                    $set: {
+                        status: "Rejected",
+                        updatedAt: new Date(),
+                    },
+                }
+            );
+            res.send(result);
+        });
+
+        // PATCH assign agent to application
+        app.patch("/admin/applications/:id/assign", async (req, res) => {
+            const { id } = req.params;
+            const { agentEmail } = req.body;
+
+            if (!agentEmail) {
+                return res.status(400).send({ message: "Agent email is required" });
+            }
+
+            const result = await applicationsCollection.updateOne(
+                { _id: new ObjectId(id) },
+                {
+                    $set: {
+                        assignedAgent: agentEmail,
+                        status: "Approved",
+                        updatedAt: new Date(),
+                    },
+                }
+            );
+            res.send(result);
         });
 
         // Send a ping to confirm a successful connection
