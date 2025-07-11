@@ -228,7 +228,7 @@ async function run() {
         // Get Policies (with Pagination)
         app.get("/policies", async (req, res) => {
             const page = parseInt(req.query.page) || 1;
-            const limit = parseInt(req.query.limit) || 5;
+            const limit = parseInt(req.query.limit) || 5 || 9;
             const skip = (page - 1) * limit;
 
             const total = await policiesCollection.countDocuments();
@@ -288,43 +288,43 @@ async function run() {
 
         // GET /transactions with filters, pagination
         app.get("/transactions", async (req, res) => {
-                const page = parseInt(req.query.page) || 1;
-                const limit = parseInt(req.query.limit) || 5;
-                const skip = (page - 1) * limit;
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 5;
+            const skip = (page - 1) * limit;
 
-                const { startDate, endDate, user, policy } = req.query;
+            const { startDate, endDate, user, policy } = req.query;
 
-                const filter = {};
+            const filter = {};
 
-                if (startDate && endDate) {
-                    filter.date = {
-                        $gte: new Date(startDate),
-                        $lte: new Date(endDate),
-                    };
-                }
+            if (startDate && endDate) {
+                filter.date = {
+                    $gte: new Date(startDate),
+                    $lte: new Date(endDate),
+                };
+            }
 
-                if (user) {
-                    filter.userEmail = { $regex: new RegExp(user, "i") };
-                }
+            if (user) {
+                filter.userEmail = { $regex: new RegExp(user, "i") };
+            }
 
-                if (policy) {
-                    filter.policyName = { $regex: new RegExp(policy, "i") };
-                }
+            if (policy) {
+                filter.policyName = { $regex: new RegExp(policy, "i") };
+            }
 
-                const totalCount = await transactionsCollection.countDocuments(filter);
-                const totalPages = Math.ceil(totalCount / limit);
+            const totalCount = await transactionsCollection.countDocuments(filter);
+            const totalPages = Math.ceil(totalCount / limit);
 
-                const transactions = await transactionsCollection
-                    .find(filter)
-                    .sort({ date: -1 })
-                    .skip(skip)
-                    .limit(limit)
-                    .toArray();
+            const transactions = await transactionsCollection
+                .find(filter)
+                .sort({ date: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
 
-                res.json({
-                    transactions,
-                    totalPages,
-                });
+            res.json({
+                transactions,
+                totalPages,
+            });
         });
 
         // GET /transactions/summary
@@ -356,6 +356,31 @@ async function run() {
             });
         });
 
+        // MANAGE AGENTS
+
+
+        // CUSTOMER
+
+        // MY POLICIES
+
+
+        // POLICY DETAILS
+        // GET a specific policy by ID
+        app.get("/policies/:id", async (req, res) => {
+            const { id } = req.params;
+
+            if (!ObjectId.isValid(id)) {
+                return res.status(400).json({ message: "Invalid policy ID format." });
+            }
+
+            const policy = await policiesCollection.findOne({ _id: new ObjectId(id) });
+
+            if (!policy) {
+                return res.status(404).json({ message: "Policy not found." });
+            }
+
+            res.json(policy);
+        });
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
