@@ -32,6 +32,7 @@ async function run() {
         const applicationsCollection = client.db('ThriveSecureDB').collection('applications');
         const policiesCollection = client.db('ThriveSecureDB').collection('policies');
         const transactionsCollection = client.db('ThriveSecureDB').collection('transactions');
+        const reviewsCollection = client.db('ThriveSecureDB').collection('reviews');
 
         // NEWSLETTER SUBSCRIPTION
 
@@ -376,7 +377,29 @@ async function run() {
         // MY POLICIES
 
         // POST /reviews - Submit a review
-        
+        app.post('/reviews', async (req, res) => {
+            const { policyId, rating, feedback, createdAt, userImage } = req.body;
+
+            if (!policyId || !rating || !feedback) {
+                return res.status(400).json({ message: "All fields are required." });
+            }
+
+            const newReview = {
+                policyId,
+                rating: parseInt(rating),
+                feedback,
+                createdAt: createdAt || new Date().toISOString(),
+                userImage: userImage || null,
+            };
+
+            const result = await reviewsCollection.insertOne(newReview);
+
+            res.status(201).json({
+                message: "Review submitted successfully.",
+                insertedId: result.insertedId,
+            });
+        });
+
 
 
         // POLICY DETAILS
