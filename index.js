@@ -113,14 +113,18 @@ async function run() {
         // GET all applications
         app.get("/applications", async (req, res) => {
             const page = parseInt(req.query.page) || 1;
-            const limit = parseInt(req.query.limit) || 10;
+            const limit = parseInt(req.query.limit) || 5;
             const skip = (page - 1) * limit;
 
-            const totalCount = await applicationsCollection.countDocuments();
+            const email = req.query.email; // filter param
+
+            const query = email ? { email } : {}; // if email provided, filter
+
+            const totalCount = await applicationsCollection.countDocuments(query);
             const totalPages = Math.ceil(totalCount / limit);
 
             const applications = await applicationsCollection
-                .find()
+                .find(query)
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
@@ -131,6 +135,7 @@ async function run() {
                 totalPages,
             });
         });
+
 
         // PATCH reject application
         app.patch("/applications/:id/reject", async (req, res) => {
@@ -173,15 +178,22 @@ async function run() {
 
         // GET all users
         app.get("/users", async (req, res) => {
+            const { role } = req.query;
+
             const page = parseInt(req.query.page) || 1;
             const limit = parseInt(req.query.limit) || 5;
             const skip = (page - 1) * limit;
 
-            const totalCount = await usersCollection.countDocuments();
+            const filter = {};
+            if (role) {
+                filter.role = role;
+            }
+
+            const totalCount = await usersCollection.countDocuments(filter);
             const totalPages = Math.ceil(totalCount / limit);
 
             const users = await usersCollection
-                .find()
+                .find(filter)
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
@@ -363,8 +375,12 @@ async function run() {
 
         // MY POLICIES
 
+        // POST /reviews - Submit a review
+        
+
 
         // POLICY DETAILS
+
         // GET a specific policy by ID
         app.get("/policies/:id", async (req, res) => {
             const { id } = req.params;
@@ -380,6 +396,44 @@ async function run() {
             }
 
             res.json(policy);
+        });
+
+        //APPLICATION FOR POLICY
+
+        // POST: Application for policy
+        app.post("/applications", async (req, res) => {
+            const applicationData = req.body;
+
+            // Basic validation
+            const requiredFields = ["applicantName", "email", "nid", "address", "dob", "contact", "nomineeName", "nomineeRelation", "nomineeContact", "nomineeNID", "nomineeEmail", "policyId"];
+            for (const field of requiredFields) {
+                if (!applicationData[field]) {
+                    return res.status(400).json({ message: `Missing required field: ${field}` });
+                }
+            }
+
+            // Attach createdAt server-side if not sent
+            if (!applicationData.createdAt) {
+                applicationData.createdAt = new Date().toISOString();
+            }
+
+            // Attach status server-side if not sent
+            if (!applicationData.status) {
+                applicationData.status = "Pending";
+            }
+
+            // Attach status server-side if not sent
+            if (!applicationData.paymentStatus) {
+                applicationData.status = "Due";
+            }
+
+            // Insert application
+            const result = await applicationsCollection.insertOne(applicationData);
+            if (result.insertedId) {
+                res.status(201).json({ message: "Application submitted successfully.", insertedId: result.insertedId });
+            } else {
+                res.status(500).json({ message: "Failed to submit application." });
+            }
         });
 
         // Send a ping to confirm a successful connection
