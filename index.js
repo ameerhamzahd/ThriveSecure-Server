@@ -532,7 +532,52 @@ async function run() {
             }
         });
 
-             
+        // POLICY CLEARANCE
+
+        app.get("/claims", async (req, res) => {
+            try {
+                const { email, status } = req.query;
+                const query = {};
+        
+                if (email) {
+                    query.email = email;
+                }
+                if (status) {
+                    query.status = status;
+                }
+        
+                const claims = await claimsCollection.find(query).toArray();
+                res.send(claims);
+            } catch (error) {
+                console.error("Error fetching claims:", error);
+                res.status(500).send({ message: "Failed to fetch claims" });
+            }
+        });
+
+        app.patch("/claims/:id/status", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const query = { _id: new ObjectId(id) };
+        
+                const updateDoc = {
+                    $set: { status: "Approved" }
+                };
+        
+                const result = await claimsCollection.updateOne(query, updateDoc);
+        
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: "Claim not found." });
+                }
+        
+                res.send({
+                    message: "Claim approved successfully.",
+                    modifiedCount: result.modifiedCount
+                });
+            } catch (error) {
+                console.error("Error approving claim:", error);
+                res.status(500).send({ message: "Failed to approve claim." });
+            }
+        });        
 
         // CUSTOMER
 
