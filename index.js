@@ -34,6 +34,7 @@ async function run() {
         const transactionsCollection = client.db('ThriveSecureDB').collection('transactions');
         const reviewsCollection = client.db('ThriveSecureDB').collection('reviews');
         const blogsCollection = client.db('ThriveSecureDB').collection('blogs');
+        const claimsCollection = client.db('ThriveSecureDB').collection('claims');
 
         // NEWSLETTER SUBSCRIPTION
 
@@ -531,6 +532,8 @@ async function run() {
             }
         });
 
+             
+
         // CUSTOMER
 
         // MY POLICIES
@@ -643,6 +646,24 @@ async function run() {
 
             res.json(application);
         });
+
+        // CLAIM REQUEST
+
+        app.post("/claims", async (req, res) => {
+            const claimData = req.body;
+
+            // Add createdAt for tracking
+            claimData.createdAt = new Date();
+
+            const result = await claimsCollection.insertOne(claimData);
+
+            res.send({
+                success: true,
+                message: "Claim request submitted successfully",
+                insertedId: result.insertedId,
+            });
+        });
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
