@@ -167,35 +167,62 @@ async function run() {
 
         // GET all applications
         app.get("/applications", async (req, res) => {
-            const page = parseInt(req.query.page) || 1;
-            const limit = parseInt(req.query.limit) || 5;
-            const skip = (page - 1) * limit;
+            try {
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 5;
+                const skip = (page - 1) * limit;
 
-            const assignedAgent = req.query.assignedAgent; // get assigned agent email if provided
+                const { assignedAgent, email, agentAssignStatus, adminAssignStatus, paymentStatus, status } = req.query;
 
-            // Construct filter
-            const query = {};
+                const query = {};
 
-            if (assignedAgent) {
-                query.adminAssignStatus = "Approved";
-                query.assignedAgent = assignedAgent;
+                // If filtering by assigned agent
+                if (assignedAgent) {
+                    query.assignedAgent = assignedAgent;
+                    if (adminAssignStatus) {
+                        query.adminAssignStatus = adminAssignStatus;
+                    } else {
+                        query.adminAssignStatus = "Approved"; // default filtering
+                    }
+                }
+
+                // If filtering by email for customer
+                if (email) {
+                    query.email = email;
+                    if (agentAssignStatus) {
+                        query.agentAssignStatus = agentAssignStatus;
+                    }
+                    if (adminAssignStatus) {
+                        query.adminAssignStatus = adminAssignStatus;
+                    }
+                    if (paymentStatus) {
+                        query.paymentStatus = paymentStatus;
+                    }
+                    if (status) {
+                        query.status = status;
+                    }
+                }
+
+                const totalCount = await applicationsCollection.countDocuments(query);
+                const totalPages = Math.ceil(totalCount / limit);
+
+                const applications = await applicationsCollection
+                    .find(query)
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    applications,
+                    totalPages,
+                });
+            } catch (error) {
+                console.error("Error fetching applications:", error);
+                res.status(500).json({ message: "Internal server error." });
             }
-
-            const totalCount = await applicationsCollection.countDocuments(query);
-            const totalPages = Math.ceil(totalCount / limit);
-
-            const applications = await applicationsCollection
-                .find(query)
-                .sort({ createdAt: -1 })
-                .skip(skip)
-                .limit(limit)
-                .toArray();
-
-            res.send({
-                applications,
-                totalPages,
-            });
         });
+
 
         // PATCH reject application
         app.patch("/applications/:id/reject", async (req, res) => {
@@ -430,7 +457,6 @@ async function run() {
             });
         });
 
-
         // MANAGE AGENTS
 
         // AGENTS
@@ -458,25 +484,38 @@ async function run() {
         // MANAGE BLOGS
         // GET /blogs
         app.get("/blogs", async (req, res) => {
-            const page = parseInt(req.query.page) || 1;
-            const limit = parseInt(req.query.limit) || 5;
-            const skip = (page - 1) * limit;
-
-            const authorEmail = req.query.email; // agent's email
-
-            const query = authorEmail ? { authorEmail } : {};
-
-            const totalCount = await blogsCollection.countDocuments(query);
-            const totalPages = Math.ceil(totalCount / limit);
-
-            const blogs = await blogsCollection
-                .find(query)
-                .sort({ publishDate: -1 })
-                .skip(skip)
-                .limit(limit)
-                .toArray();
-
-            res.send({ blogs, totalPages });
+            try {
+                const role = req.query.role;
+                const authorEmail = req.query.authorEmail;
+        
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 5;
+                const skip = (page - 1) * limit;
+        
+                const query = {};
+        
+                if (role === "agent") {
+                    if (!authorEmail) {
+                        return res.status(400).json({ message: "Author email required for agent role." });
+                    }
+                    query.authorEmail = authorEmail;
+                }
+        
+                const totalCount = await blogsCollection.countDocuments(query);
+                const totalPages = Math.ceil(totalCount / limit);
+        
+                const blogs = await blogsCollection
+                    .find(query)
+                    .sort({ publishDate: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+        
+                res.send({ blogs, totalPages });
+            } catch (error) {
+                console.error("Error fetching blogs:", error);
+                res.status(500).json({ message: "Internal server error." });
+            }
         });
 
         // POST /blogs
@@ -535,40 +574,35 @@ async function run() {
         // POLICY CLEARANCE
 
         app.get("/claims", async (req, res) => {
-            try {
-                const { email, status } = req.query;
-                const query = {};
-        
-                if (email) {
-                    query.email = email;
-                }
-                if (status) {
-                    query.status = status;
-                }
-        
-                const claims = await claimsCollection.find(query).toArray();
-                res.send(claims);
-            } catch (error) {
-                console.error("Error fetching claims:", error);
-                res.status(500).send({ message: "Failed to fetch claims" });
+            const { email, status } = req.query;
+            const query = {};
+
+            if (email) {
+                query.email = email;
             }
+            if (status) {
+                query.status = status;
+            }
+
+            const claims = await claimsCollection.find(query).toArray();
+            res.send(claims);
         });
 
         app.patch("/claims/:id/status", async (req, res) => {
             try {
                 const { id } = req.params;
                 const query = { _id: new ObjectId(id) };
-        
+
                 const updateDoc = {
                     $set: { status: "Approved" }
                 };
-        
+
                 const result = await claimsCollection.updateOne(query, updateDoc);
-        
+
                 if (result.matchedCount === 0) {
                     return res.status(404).send({ message: "Claim not found." });
                 }
-        
+
                 res.send({
                     message: "Claim approved successfully.",
                     modifiedCount: result.modifiedCount
@@ -577,7 +611,7 @@ async function run() {
                 console.error("Error approving claim:", error);
                 res.status(500).send({ message: "Failed to approve claim." });
             }
-        });        
+        });
 
         // CUSTOMER
 
@@ -707,6 +741,29 @@ async function run() {
                 message: "Claim request submitted successfully",
                 insertedId: result.insertedId,
             });
+        });
+
+        // ARTICLES
+        app.patch("/blogs/:id/increment-visit", async (req, res) => {
+            try {
+                const id = req.params.id;
+                const filter = { _id: new ObjectId(id) };
+        
+                const update = {
+                    $inc: { totalVisit: 1 },
+                };
+        
+                const result = await blogsCollection.updateOne(filter, update);
+        
+                if (result.modifiedCount === 0) {
+                    return res.status(404).json({ message: "Blog not found or already updated." });
+                }
+        
+                res.json({ message: "Visit count incremented successfully." });
+            } catch (error) {
+                console.error("Error incrementing visit count:", error);
+                res.status(500).json({ message: "Internal server error." });
+            }
         });
 
 
