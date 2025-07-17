@@ -33,6 +33,7 @@ async function run() {
         const policiesCollection = client.db('ThriveSecureDB').collection('policies');
         const transactionsCollection = client.db('ThriveSecureDB').collection('transactions');
         const reviewsCollection = client.db('ThriveSecureDB').collection('reviews');
+        const blogsCollection = client.db('ThriveSecureDB').collection('blogs');
 
         // NEWSLETTER SUBSCRIPTION
 
@@ -56,6 +57,58 @@ async function run() {
             });
 
             res.json({ success: true, insertedId: result.insertedId });
+        });
+
+        // POLICY DETAILS
+
+        // GET a specific policy by ID
+        app.get("/policies/:id", async (req, res) => {
+            const { id } = req.params;
+
+            if (!ObjectId.isValid(id)) {
+                return res.status(400).json({ message: "Invalid policy ID format." });
+            }
+
+            const policy = await policiesCollection.findOne({ _id: new ObjectId(id) });
+
+            if (!policy) {
+                return res.status(404).json({ message: "Policy not found." });
+            }
+
+            res.json(policy);
+        });
+
+        //APPLICATION FOR POLICY
+
+        // POST: Application for policy
+        app.post("/applications", async (req, res) => {
+            const applicationData = req.body;
+
+            // Basic validation
+            const requiredFields = ["applicantName", "email", "nid", "address", "dob", "contact", "nomineeName", "nomineeRelation", "nomineeContact", "nomineeNID", "nomineeEmail", "policyId"];
+            for (const field of requiredFields) {
+                if (!applicationData[field]) {
+                    return res.status(400).json({ message: `Missing required field: ${field}` });
+                }
+            }
+
+            // Attach createdAt server-side if not sent
+            if (!applicationData.createdAt) {
+                applicationData.createdAt = new Date().toISOString();
+            }
+
+            // Attach status server-side if not sent
+            if (!applicationData.paymentStatus) {
+                applicationData.status = "due";
+            }
+
+            // Insert application
+            const result = await applicationsCollection.insertOne(applicationData);
+            if (result.insertedId) {
+                res.status(201).json({ message: "Application submitted successfully.", insertedId: result.insertedId });
+            } else {
+                res.status(500).json({ message: "Failed to submit application." });
+            }
         });
 
         //USERS
@@ -116,27 +169,27 @@ async function run() {
             const page = parseInt(req.query.page) || 1;
             const limit = parseInt(req.query.limit) || 5;
             const skip = (page - 1) * limit;
-        
+
             const assignedAgent = req.query.assignedAgent; // get assigned agent email if provided
-        
+
             // Construct filter
             const query = {};
-        
+
             if (assignedAgent) {
                 query.adminAssignStatus = "Approved";
                 query.assignedAgent = assignedAgent;
             }
-        
+
             const totalCount = await applicationsCollection.countDocuments(query);
             const totalPages = Math.ceil(totalCount / limit);
-        
+
             const applications = await applicationsCollection
                 .find(query)
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
                 .toArray();
-        
+
             res.send({
                 applications,
                 totalPages,
@@ -309,62 +362,62 @@ async function run() {
             const page = parseInt(req.query.page) || 1;
             const limit = parseInt(req.query.limit) || 5;
             const skip = (page - 1) * limit;
-        
+
             const { startDate, endDate, user, policy } = req.query;
-        
+
             const filter = {};
-        
+
             if (startDate && endDate) {
                 filter.date = {
                     $gte: new Date(startDate),
                     $lte: new Date(endDate),
                 };
             }
-        
+
             if (user) {
                 filter.userEmail = { $regex: new RegExp(user, "i") };
             }
-        
+
             if (policy) {
                 filter.policyName = { $regex: new RegExp(policy, "i") };
             }
-        
+
             const totalCount = await transactionsCollection.countDocuments(filter);
             const totalPages = Math.ceil(totalCount / limit);
-        
+
             const transactions = await transactionsCollection
                 .find(filter)
                 .sort({ date: -1 })
                 .skip(skip)
                 .limit(limit)
                 .toArray();
-        
+
             // === Additional Summary Calculation ===
-        
+
             // Calculate total income from ALL successful transactions
             const totalIncomeAgg = await transactionsCollection.aggregate([
                 { $match: { status: "paid" } },
                 { $group: { _id: null, total: { $sum: "$amount" } } }
             ]).toArray();
-        
+
             const totalIncome = totalIncomeAgg[0]?.total || 0;
-        
+
             // Calculate success and failure rate in the last 30 days
             const now = new Date();
             const thirtyDaysAgo = new Date(now);
             thirtyDaysAgo.setDate(now.getDate() - 30);
-        
+
             const last30DaysTransactions = await transactionsCollection.find({
                 date: { $gte: thirtyDaysAgo }
             }).toArray();
-        
+
             const total = last30DaysTransactions.length || 1;
             const successCount = last30DaysTransactions.filter(txn => txn.status === "paid").length;
             const failCount = last30DaysTransactions.filter(txn => txn.status === "failed").length;
-        
+
             const successRate = ((successCount / total) * 100).toFixed(2);
             const failRate = ((failCount / total) * 100).toFixed(2);
-        
+
             res.json({
                 transactions,
                 totalPages,
@@ -375,7 +428,7 @@ async function run() {
                 }
             });
         });
-        
+
 
         // MANAGE AGENTS
 
@@ -399,6 +452,83 @@ async function run() {
                 { $inc: { purchaseCount: 1 } }
             );
             res.send(result);
+        });
+
+        // MANAGE BLOGS
+        // GET /blogs
+        app.get("/blogs", async (req, res) => {
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 5;
+            const skip = (page - 1) * limit;
+
+            const authorEmail = req.query.email; // agent's email
+
+            const query = authorEmail ? { authorEmail } : {};
+
+            const totalCount = await blogsCollection.countDocuments(query);
+            const totalPages = Math.ceil(totalCount / limit);
+
+            const blogs = await blogsCollection
+                .find(query)
+                .sort({ publishDate: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
+
+            res.send({ blogs, totalPages });
+        });
+
+        // POST /blogs
+        app.post("/blogs", async (req, res) => {
+            const { title, content, author, image, authorEmail } = req.body;
+
+            if (!title || !content || !author || !image || !authorEmail) {
+                return res.status(400).send({ message: "Missing required fields." });
+            }
+
+            const blog = {
+                title,
+                content,
+                author,
+                authorEmail,
+                image,
+                publishDate: new Date().toISOString()
+            };
+
+            const result = await blogsCollection.insertOne(blog);
+            res.send(result);
+        });
+
+        // PATCH /blogs/:id
+        app.patch("/blogs/:id", async (req, res) => {
+            const { id } = req.params;
+            const { title, content, author, image } = req.body;
+
+            const updateFields = {};
+            if (title) updateFields.title = title;
+            if (content) updateFields.content = content;
+            if (author) updateFields.author = author;
+            if (image) updateFields.image = image;
+
+            const result = await blogsCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: updateFields }
+            );
+
+            res.send(result);
+        });
+
+        // DELETE /blogs/:id
+        app.delete("/blogs/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                const result = await blogsCollection.deleteOne({ _id: new ObjectId(id) });
+                res.send(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Internal server error" });
+            }
         });
 
         // CUSTOMER
@@ -512,63 +642,6 @@ async function run() {
             }
 
             res.json(application);
-        });
-
-        // POLICY DETAILS
-
-        // GET a specific policy by ID
-        app.get("/policies/:id", async (req, res) => {
-            const { id } = req.params;
-
-            if (!ObjectId.isValid(id)) {
-                return res.status(400).json({ message: "Invalid policy ID format." });
-            }
-
-            const policy = await policiesCollection.findOne({ _id: new ObjectId(id) });
-
-            if (!policy) {
-                return res.status(404).json({ message: "Policy not found." });
-            }
-
-            res.json(policy);
-        });
-
-        //APPLICATION FOR POLICY
-
-        // POST: Application for policy
-        app.post("/applications", async (req, res) => {
-            const applicationData = req.body;
-
-            // Basic validation
-            const requiredFields = ["applicantName", "email", "nid", "address", "dob", "contact", "nomineeName", "nomineeRelation", "nomineeContact", "nomineeNID", "nomineeEmail", "policyId"];
-            for (const field of requiredFields) {
-                if (!applicationData[field]) {
-                    return res.status(400).json({ message: `Missing required field: ${field}` });
-                }
-            }
-
-            // Attach createdAt server-side if not sent
-            if (!applicationData.createdAt) {
-                applicationData.createdAt = new Date().toISOString();
-            }
-
-            // Attach status server-side if not sent
-            if (!applicationData.status) {
-                applicationData.status = "Pending";
-            }
-
-            // Attach status server-side if not sent
-            if (!applicationData.paymentStatus) {
-                applicationData.status = "Due";
-            }
-
-            // Insert application
-            const result = await applicationsCollection.insertOne(applicationData);
-            if (result.insertedId) {
-                res.status(201).json({ message: "Application submitted successfully.", insertedId: result.insertedId });
-            } else {
-                res.status(500).json({ message: "Failed to submit application." });
-            }
         });
 
         // Send a ping to confirm a successful connection
