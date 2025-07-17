@@ -116,27 +116,32 @@ async function run() {
             const page = parseInt(req.query.page) || 1;
             const limit = parseInt(req.query.limit) || 5;
             const skip = (page - 1) * limit;
-
-            const email = req.query.email; // filter param
-
-            const query = email ? { email } : {}; // if email provided, filter
-
+        
+            const assignedAgent = req.query.assignedAgent; // get assigned agent email if provided
+        
+            // Construct filter
+            const query = {};
+        
+            if (assignedAgent) {
+                query.adminAssignStatus = "Approved";
+                query.assignedAgent = assignedAgent;
+            }
+        
             const totalCount = await applicationsCollection.countDocuments(query);
             const totalPages = Math.ceil(totalCount / limit);
-
+        
             const applications = await applicationsCollection
                 .find(query)
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
                 .toArray();
-
+        
             res.send({
                 applications,
                 totalPages,
             });
         });
-
 
         // PATCH reject application
         app.patch("/applications/:id/reject", async (req, res) => {
@@ -145,7 +150,7 @@ async function run() {
                 { _id: new ObjectId(id) },
                 {
                     $set: {
-                        status: "Rejected",
+                        adminAssignStatus: "Rejected",
                         updatedAt: new Date(),
                     },
                 }
@@ -167,7 +172,7 @@ async function run() {
                 {
                     $set: {
                         assignedAgent: agentEmail,
-                        status: "Approved",
+                        adminAssignStatus: "Approved",
                         updatedAt: new Date(),
                     },
                 }
@@ -304,73 +309,97 @@ async function run() {
             const page = parseInt(req.query.page) || 1;
             const limit = parseInt(req.query.limit) || 5;
             const skip = (page - 1) * limit;
-
+        
             const { startDate, endDate, user, policy } = req.query;
-
+        
             const filter = {};
-
+        
             if (startDate && endDate) {
                 filter.date = {
                     $gte: new Date(startDate),
                     $lte: new Date(endDate),
                 };
             }
-
+        
             if (user) {
                 filter.userEmail = { $regex: new RegExp(user, "i") };
             }
-
+        
             if (policy) {
                 filter.policyName = { $regex: new RegExp(policy, "i") };
             }
-
+        
             const totalCount = await transactionsCollection.countDocuments(filter);
             const totalPages = Math.ceil(totalCount / limit);
-
+        
             const transactions = await transactionsCollection
                 .find(filter)
                 .sort({ date: -1 })
                 .skip(skip)
                 .limit(limit)
                 .toArray();
-
-            res.json({
-                transactions,
-                totalPages,
-            });
-        });
-
-        // GET /transactions/summary
-        app.get("/transactions/summary", async (req, res) => {
+        
+            // === Additional Summary Calculation ===
+        
+            // Calculate total income from ALL successful transactions
+            const totalIncomeAgg = await transactionsCollection.aggregate([
+                { $match: { status: "paid" } },
+                { $group: { _id: null, total: { $sum: "$amount" } } }
+            ]).toArray();
+        
+            const totalIncome = totalIncomeAgg[0]?.total || 0;
+        
+            // Calculate success and failure rate in the last 30 days
             const now = new Date();
             const thirtyDaysAgo = new Date(now);
             thirtyDaysAgo.setDate(now.getDate() - 30);
-
-            const totalIncome = await transactionsCollection.aggregate([
-                { $match: { status: "Success" } },
-                { $group: { _id: null, total: { $sum: "$amount" } } }
-            ]).toArray();
-
+        
             const last30DaysTransactions = await transactionsCollection.find({
                 date: { $gte: thirtyDaysAgo }
             }).toArray();
-
+        
             const total = last30DaysTransactions.length || 1;
-            const successCount = last30DaysTransactions.filter(txn => txn.status === "Success").length;
-            const failCount = last30DaysTransactions.filter(txn => txn.status === "Failed").length;
-
+            const successCount = last30DaysTransactions.filter(txn => txn.status === "paid").length;
+            const failCount = last30DaysTransactions.filter(txn => txn.status === "failed").length;
+        
             const successRate = ((successCount / total) * 100).toFixed(2);
             const failRate = ((failCount / total) * 100).toFixed(2);
-
+        
             res.json({
-                totalIncome: totalIncome[0]?.total || 0,
-                successRate: parseFloat(successRate),
-                failRate: parseFloat(failRate)
+                transactions,
+                totalPages,
+                summary: {
+                    totalIncome: parseFloat((totalIncome / 100).toFixed(2)), // 💡 convert cents to dollars with 2 decimals
+                    successRate: parseFloat(successRate),
+                    failRate: parseFloat(failRate),
+                }
             });
         });
+        
 
         // MANAGE AGENTS
 
+        // AGENTS
+
+        // ASSIGNED CUSTOMERS
+        app.patch("/applications/:id/agentAssignStatus", async (req, res) => {
+            const { id } = req.params;
+            const { agentAssignStatus } = req.body;
+            const result = await applicationsCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: { agentAssignStatus, updatedAt: new Date() } }
+            );
+            res.send(result);
+        });
+
+        app.patch("/policies/:id/increment-purchase", async (req, res) => {
+            const { id } = req.params;
+            const result = await policiesCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $inc: { purchaseCount: 1 } }
+            );
+            res.send(result);
+        });
 
         // CUSTOMER
 
@@ -400,7 +429,90 @@ async function run() {
             });
         });
 
+        // POST a new transaction after successful payment
+        app.post("/transactions", async (req, res) => {
+            const {
+                paymentIntentId,
+                amount,
+                currency,
+                userEmail,
+                policyId,
+                policyName,
+                status,
+            } = req.body;
 
+            if (!paymentIntentId || !amount || !currency || !userEmail || !policyId || !status) {
+                return res.status(400).json({ message: "Missing required transaction fields." });
+            }
+
+            const transaction = {
+                paymentIntentId,
+                amount,
+                currency,
+                userEmail,
+                policyId,
+                policyName: policyName || "N/A",
+                status,
+                date: new Date(),
+            };
+
+            const result = await transactionsCollection.insertOne(transaction);
+
+            res.status(201).json({
+                message: "Transaction recorded successfully.",
+                insertedId: result.insertedId,
+            });
+        });
+
+        // PATCH: Update application payment status to 'Paid'
+        app.patch("/applications/:id", async (req, res) => {
+            const { id } = req.params;
+            const { paymentStatus } = req.body;
+
+            if (!ObjectId.isValid(id)) {
+                return res.status(400).json({ message: "Invalid application ID format." });
+            }
+
+            if (!paymentStatus) {
+                return res.status(400).json({ message: "Missing payment status." });
+            }
+
+            const result = await applicationsCollection.updateOne(
+                { _id: new ObjectId(id) },
+                {
+                    $set: {
+                        paymentStatus: paymentStatus,
+                        updatedAt: new Date(),
+                    },
+                }
+            );
+
+            if (result.matchedCount === 0) {
+                return res.status(404).json({ message: "Application not found." });
+            }
+
+            res.json({
+                message: "Payment status updated successfully.",
+                modifiedCount: result.modifiedCount,
+            });
+        });
+
+        // GET: Retrieve a single application by ID
+        app.get("/applications/:id", async (req, res) => {
+            const { id } = req.params;
+
+            if (!ObjectId.isValid(id)) {
+                return res.status(400).json({ message: "Invalid application ID format." });
+            }
+
+            const application = await applicationsCollection.findOne({ _id: new ObjectId(id) });
+
+            if (!application) {
+                return res.status(404).json({ message: "Application not found." });
+            }
+
+            res.json(application);
+        });
 
         // POLICY DETAILS
 
