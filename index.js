@@ -29,53 +29,54 @@ admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
 });
 
-// custom middleware
+// CUSTOM MIDDLEWARES
+
 const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
-      return res.status(401).send({ message: "unauthorized access" });
+        return res.status(401).send({ message: "unauthorized access" });
     }
     const token = authHeader.split(" ")[1];
 
     if (!token) {
-      return res.status(401).send({ message: "unauthorized access" });
+        return res.status(401).send({ message: "unauthorized access" });
     }
 
     try {
-      const decoded = await admin.auth().verifyIdToken(token);
-      req.decoded = decoded;
-      next();
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
     } catch (error) {
-      return res.status(403).send({ message: "forbidden access" });
+        return res.status(403).send({ message: "forbidden access" });
     }
-  };
+};
 
-  const verifyAdmin = async (req, res, next) => {
+const verifyAdmin = async (req, res, next) => {
     const email = req.decoded.email;
 
     const query = { email };
     const user = await userCollection.findOne(query);
 
     if (!user || user.role !== "admin") {
-      return res.status(401).send({ message: "forbidden access" });
+        return res.status(401).send({ message: "forbidden access" });
     }
     next();
-  };
-  const verifyAgent = async (req, res, next) => {
+};
+const verifyAgent = async (req, res, next) => {
     const email = req.decoded.email;
 
     const query = { email };
     const user = await userCollection.findOne(query);
     if (!user || user.role !== "agent") {
-      return res.status(401).send({ message: "forbidden access" });
+        return res.status(401).send({ message: "forbidden access" });
     }
     next();
-  };
+};
 
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
 
         // DATABASE INITIALIZING
         const newsletterSubscriptionsCollection = client.db('ThriveSecureDB').collection('newsletterSubscriptions');
@@ -456,13 +457,18 @@ async function run() {
             const limit = parseInt(req.query.limit) || 5;
             const skip = (page - 1) * limit;
 
-            const sortByPurchaseCount = req.query.popular === "true"; // key part
-
+            const sortByPurchaseCount = req.query.popular === "true";
             const sortCriteria = sortByPurchaseCount ? { purchaseCount: -1 } : { createdAt: -1 };
 
-            const total = await policiesCollection.countDocuments();
+            const search = req.query.search || "";
+
+            const filter = search
+                ? { title: { $regex: search, $options: "i" } } // case-insensitive search on title
+                : {};
+
+            const total = await policiesCollection.countDocuments(filter);
             const policies = await policiesCollection
-                .find({})
+                .find(filter)
                 .sort(sortCriteria)
                 .skip(skip)
                 .limit(limit)
