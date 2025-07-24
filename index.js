@@ -7,6 +7,8 @@ const port = process.env.PORT || 3000;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const admin = require("firebase-admin");
+const decoded = Buffer.from(process.env.TOKEN_KEY, 'base64').toString('utf8');
+const serviceAccount = JSON.parse(decoded);
 
 app.use(cors());
 app.use(express.json());
@@ -22,6 +24,53 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 });
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
+// custom middleware
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).send({ message: "unauthorized access" });
+    }
+    const token = authHeader.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).send({ message: "unauthorized access" });
+    }
+
+    try {
+      const decoded = await admin.auth().verifyIdToken(token);
+      req.decoded = decoded;
+      next();
+    } catch (error) {
+      return res.status(403).send({ message: "forbidden access" });
+    }
+  };
+
+  const verifyAdmin = async (req, res, next) => {
+    const email = req.decoded.email;
+
+    const query = { email };
+    const user = await userCollection.findOne(query);
+
+    if (!user || user.role !== "admin") {
+      return res.status(401).send({ message: "forbidden access" });
+    }
+    next();
+  };
+  const verifyAgent = async (req, res, next) => {
+    const email = req.decoded.email;
+
+    const query = { email };
+    const user = await userCollection.findOne(query);
+    if (!user || user.role !== "agent") {
+      return res.status(401).send({ message: "forbidden access" });
+    }
+    next();
+  };
 
 async function run() {
     try {
