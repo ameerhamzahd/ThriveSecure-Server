@@ -1,2 +1,4 @@
 node_modules
 .env
+.vercel
+thrivesec-org-firebase-jwt-token.json

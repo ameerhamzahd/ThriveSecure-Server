@@ -24,7 +24,7 @@ const client = new MongoClient(uri, {
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
 
         // DATABASE INITIALIZING
         const newsletterSubscriptionsCollection = client.db('ThriveSecureDB').collection('newsletterSubscriptions');
@@ -112,6 +112,87 @@ async function run() {
             }
         });
 
+        // CUSTOMER REVIEWS
+        // GET /reviews - Get all reviews (with optional limit for homepage)
+        app.get("/reviews", async (req, res) => {
+            const limit = parseInt(req.query.limit) || 0;
+
+            const reviews = await reviewsCollection
+                .find()
+                .sort({ createdAt: -1 })
+                .limit(limit)
+                .toArray();
+
+            res.send({ reviews });
+        });
+
+        // ARTICLES
+        // GET /blogs
+        app.get("/blogs", async (req, res) => {
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 5;
+            const skip = (page - 1) * limit;
+
+            const query = {};
+
+            const totalCount = await blogsCollection.countDocuments(query);
+            const totalPages = Math.ceil(totalCount / limit);
+
+            const blogs = await blogsCollection
+                .find(query)
+                .sort({ publishDate: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
+
+            res.send({ blogs, totalPages });
+        });
+
+        app.patch("/blogs/:id/increment-visit", async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+
+            const update = {
+                $inc: { totalVisit: 1 },
+            };
+
+            const result = await blogsCollection.updateOne(filter, update);
+
+            if (result.modifiedCount === 0) {
+                return res.status(404).json({ message: "Blog not found or already updated." });
+            }
+
+            res.json({ message: "Visit count incremented successfully." });
+        });
+
+        // PROFILE
+        app.patch("/users/:email", async (req, res) => {
+            const { email } = req.params;
+            const { name, photoURL, lastLogin } = req.body;
+
+            const filter = { email: email };
+            const updateDoc = {
+                $set: {
+                    ...(name && { name }),
+                    ...(photoURL && { photoURL }),
+                    ...(lastLogin && { lastLogin }),
+                    updatedAt: new Date()
+                }
+            };
+
+            const result = await usersCollection.updateOne(filter, updateDoc, { upsert: false });
+
+            if (result.matchedCount === 0) {
+                return res.status(404).json({ message: "User not found" });
+            }
+
+            res.json({
+                message: "User profile updated successfully",
+                updatedCount: result.modifiedCount,
+            });
+
+        });
+
         //USERS
 
         // Posting a User
@@ -167,62 +248,56 @@ async function run() {
 
         // GET all applications
         app.get("/applications", async (req, res) => {
-            try {
-                const page = parseInt(req.query.page) || 1;
-                const limit = parseInt(req.query.limit) || 5;
-                const skip = (page - 1) * limit;
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 5;
+            const skip = (page - 1) * limit;
 
-                const { assignedAgent, email, agentAssignStatus, adminAssignStatus, paymentStatus, status } = req.query;
+            const { assignedAgent, email, agentAssignStatus, adminAssignStatus, paymentStatus, status } = req.query;
 
-                const query = {};
+            const query = {};
 
-                // If filtering by assigned agent
-                if (assignedAgent) {
-                    query.assignedAgent = assignedAgent;
-                    if (adminAssignStatus) {
-                        query.adminAssignStatus = adminAssignStatus;
-                    } else {
-                        query.adminAssignStatus = "Approved"; // default filtering
-                    }
+            // If filtering by assigned agent
+            if (assignedAgent) {
+                query.assignedAgent = assignedAgent;
+                if (adminAssignStatus) {
+                    query.adminAssignStatus = adminAssignStatus;
+                } else {
+                    query.adminAssignStatus = "Approved"; // default filtering
                 }
-
-                // If filtering by email for customer
-                if (email) {
-                    query.email = email;
-                    if (agentAssignStatus) {
-                        query.agentAssignStatus = agentAssignStatus;
-                    }
-                    if (adminAssignStatus) {
-                        query.adminAssignStatus = adminAssignStatus;
-                    }
-                    if (paymentStatus) {
-                        query.paymentStatus = paymentStatus;
-                    }
-                    if (status) {
-                        query.status = status;
-                    }
-                }
-
-                const totalCount = await applicationsCollection.countDocuments(query);
-                const totalPages = Math.ceil(totalCount / limit);
-
-                const applications = await applicationsCollection
-                    .find(query)
-                    .sort({ createdAt: -1 })
-                    .skip(skip)
-                    .limit(limit)
-                    .toArray();
-
-                res.send({
-                    applications,
-                    totalPages,
-                });
-            } catch (error) {
-                console.error("Error fetching applications:", error);
-                res.status(500).json({ message: "Internal server error." });
             }
-        });
 
+            // If filtering by email for customer
+            if (email) {
+                query.email = email;
+                if (agentAssignStatus) {
+                    query.agentAssignStatus = agentAssignStatus;
+                }
+                if (adminAssignStatus) {
+                    query.adminAssignStatus = adminAssignStatus;
+                }
+                if (paymentStatus) {
+                    query.paymentStatus = paymentStatus;
+                }
+                if (status) {
+                    query.status = status;
+                }
+            }
+
+            const totalCount = await applicationsCollection.countDocuments(query);
+            const totalPages = Math.ceil(totalCount / limit);
+
+            const applications = await applicationsCollection
+                .find(query)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
+
+            res.send({
+                applications,
+                totalPages,
+            });
+        });
 
         // PATCH reject application
         app.patch("/applications/:id/reject", async (req, res) => {
@@ -327,13 +402,17 @@ async function run() {
         // Get Policies (with Pagination)
         app.get("/policies", async (req, res) => {
             const page = parseInt(req.query.page) || 1;
-            const limit = parseInt(req.query.limit) || 5 || 9;
+            const limit = parseInt(req.query.limit) || 5;
             const skip = (page - 1) * limit;
+
+            const sortByPurchaseCount = req.query.popular === "true"; // key part
+
+            const sortCriteria = sortByPurchaseCount ? { purchaseCount: -1 } : { createdAt: -1 };
 
             const total = await policiesCollection.countDocuments();
             const policies = await policiesCollection
                 .find({})
-                .sort({ createdAt: -1 })
+                .sort(sortCriteria)
                 .skip(skip)
                 .limit(limit)
                 .toArray();
@@ -457,8 +536,6 @@ async function run() {
             });
         });
 
-        // MANAGE AGENTS
-
         // AGENTS
 
         // ASSIGNED CUSTOMERS
@@ -482,40 +559,34 @@ async function run() {
         });
 
         // MANAGE BLOGS
-        // GET /blogs
-        app.get("/blogs", async (req, res) => {
-            try {
-                const role = req.query.role;
-                const authorEmail = req.query.authorEmail;
-        
-                const page = parseInt(req.query.page) || 1;
-                const limit = parseInt(req.query.limit) || 5;
-                const skip = (page - 1) * limit;
-        
-                const query = {};
-        
-                if (role === "agent") {
-                    if (!authorEmail) {
-                        return res.status(400).json({ message: "Author email required for agent role." });
-                    }
-                    query.authorEmail = authorEmail;
+        app.get("/blogs/:role/:email", async (req, res) => {
+            const { role, email } = req.params;
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 5;
+            const skip = (page - 1) * limit;
+
+            const query = {};
+
+            if (role === "agent") {
+                if (!email) {
+                    return res.status(400).json({ message: "Author email required for agent role." });
                 }
-        
-                const totalCount = await blogsCollection.countDocuments(query);
-                const totalPages = Math.ceil(totalCount / limit);
-        
-                const blogs = await blogsCollection
-                    .find(query)
-                    .sort({ publishDate: -1 })
-                    .skip(skip)
-                    .limit(limit)
-                    .toArray();
-        
-                res.send({ blogs, totalPages });
-            } catch (error) {
-                console.error("Error fetching blogs:", error);
-                res.status(500).json({ message: "Internal server error." });
+                query.authorEmail = email;
             }
+
+            // If admin, no filter: return all blogs
+
+            const totalCount = await blogsCollection.countDocuments(query);
+            const totalPages = Math.ceil(totalCount / limit);
+
+            const blogs = await blogsCollection
+                .find(query)
+                .sort({ publishDate: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
+
+            res.send({ blogs, totalPages });
         });
 
         // POST /blogs
@@ -560,15 +631,10 @@ async function run() {
 
         // DELETE /blogs/:id
         app.delete("/blogs/:id", async (req, res) => {
-            try {
-                const { id } = req.params;
+            const { id } = req.params;
 
-                const result = await blogsCollection.deleteOne({ _id: new ObjectId(id) });
-                res.send(result);
-            } catch (error) {
-                console.error(error);
-                res.status(500).send({ message: "Internal server error" });
-            }
+            const result = await blogsCollection.deleteOne({ _id: new ObjectId(id) });
+            res.send(result);
         });
 
         // POLICY CLEARANCE
@@ -589,28 +655,23 @@ async function run() {
         });
 
         app.patch("/claims/:id/status", async (req, res) => {
-            try {
-                const { id } = req.params;
-                const query = { _id: new ObjectId(id) };
+            const { id } = req.params;
+            const query = { _id: new ObjectId(id) };
 
-                const updateDoc = {
-                    $set: { status: "Approved" }
-                };
+            const updateDoc = {
+                $set: { status: "Approved" }
+            };
 
-                const result = await claimsCollection.updateOne(query, updateDoc);
+            const result = await claimsCollection.updateOne(query, updateDoc);
 
-                if (result.matchedCount === 0) {
-                    return res.status(404).send({ message: "Claim not found." });
-                }
-
-                res.send({
-                    message: "Claim approved successfully.",
-                    modifiedCount: result.modifiedCount
-                });
-            } catch (error) {
-                console.error("Error approving claim:", error);
-                res.status(500).send({ message: "Failed to approve claim." });
+            if (result.matchedCount === 0) {
+                return res.status(404).send({ message: "Claim not found." });
             }
+
+            res.send({
+                message: "Claim approved successfully.",
+                modifiedCount: result.modifiedCount
+            });
         });
 
         // CUSTOMER
@@ -619,9 +680,10 @@ async function run() {
 
         // POST /reviews - Submit a review
         app.post('/reviews', async (req, res) => {
-            const { policyId, rating, feedback, createdAt, userImage } = req.body;
+            const { policyId, rating, feedback, createdAt, userImage, applicantName } = req.body;
 
-            if (!policyId || !rating || !feedback) {
+            // Validate required fields
+            if (!policyId || !rating || !feedback || !applicantName) {
                 return res.status(400).json({ message: "All fields are required." });
             }
 
@@ -631,14 +693,17 @@ async function run() {
                 feedback,
                 createdAt: createdAt || new Date().toISOString(),
                 userImage: userImage || null,
+                applicantName: applicantName || null
             };
 
             const result = await reviewsCollection.insertOne(newReview);
 
-            res.status(201).json({
-                message: "Review submitted successfully.",
-                insertedId: result.insertedId,
-            });
+            if (result.insertedId) {
+                return res.status(201).json({
+                    message: "Review submitted successfully.",
+                    insertedId: result.insertedId,
+                });
+            }
         });
 
         // POST a new transaction after successful payment
@@ -742,30 +807,6 @@ async function run() {
                 insertedId: result.insertedId,
             });
         });
-
-        // ARTICLES
-        app.patch("/blogs/:id/increment-visit", async (req, res) => {
-            try {
-                const id = req.params.id;
-                const filter = { _id: new ObjectId(id) };
-        
-                const update = {
-                    $inc: { totalVisit: 1 },
-                };
-        
-                const result = await blogsCollection.updateOne(filter, update);
-        
-                if (result.modifiedCount === 0) {
-                    return res.status(404).json({ message: "Blog not found or already updated." });
-                }
-        
-                res.json({ message: "Visit count incremented successfully." });
-            } catch (error) {
-                console.error("Error incrementing visit count:", error);
-                res.status(500).json({ message: "Internal server error." });
-            }
-        });
-
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
