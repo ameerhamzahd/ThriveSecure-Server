@@ -1,4 +1,4 @@
-# 🛡️ ThriveSecure Server
+# ThriveSecure Server
 
 The **ThriveSecure Server** is a secure, scalable backend built with **Node.js** and **Express**, designed to power modern life and health insurance services. It delivers **RESTful APIs** for managing policies, payments, and user data while ensuring **robust JWT-based authentication**, **Firebase Admin** integration, and **Stripe payment processing**. Built for reliability and clarity, it seamlessly supports the ThriveSecure client platform.
 
