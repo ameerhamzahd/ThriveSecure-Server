@@ -4,7 +4,7 @@ The **ThriveSecure Server** is a secure, scalable backend built with **Node.js**
 
 ---
 
-## 🧩 Project Overview
+## Project Overview
 
 This backend is responsible for:
 
@@ -16,9 +16,9 @@ This backend is responsible for:
 
 ---
 
-## 🔗 Frontend Companion
+## Frontend Companion
 
-👉 [ThriveSecure Client Repository](https://github.com/ameerhamzahd/thrivesecure)
+ [ThriveSecure Client Repository](https://github.com/ameerhamzahd/ThriveSecure.git)
 
 ---
 
@@ -64,8 +64,8 @@ This backend is responsible for:
 
 1. **Clone the repository**:
     ```bash
-    git clone https://github.com/ameerhamzahd/thrivesecure-server.git
-    cd thrivesecure-server
+    git clone https://github.com/ameerhamzahd/ThriveSecure-Server.git
+    cd ThriveSecure-Server
     ```
 
 2. **Install dependencies:**
