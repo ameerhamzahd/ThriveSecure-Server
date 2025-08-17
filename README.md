@@ -22,18 +22,18 @@ This backend is responsible for:
 
 ---
 
-## 🚀 Features
+## Features
 
-- 📦 REST API with CRUD operations for insurance data
-- 💳 Stripe payment integration for premium handling
-- 🔐 Firebase Admin authentication & JWT token system
-- 🌐 CORS-enabled for frontend-backend interaction
-- 🌱 Environment configuration using `.env`
-- ⚙️ Ready for deployment with `vercel.json`
+- REST API with CRUD operations for insurance data
+- Stripe payment integration for premium handling
+- Firebase Admin authentication & JWT token system
+- CORS-enabled for frontend-backend interaction
+- Environment configuration using `.env`
+- Ready for deployment with `vercel.json`
 
 ---
 
-## ⚙️ Tech Stack
+## Tech Stack
 
 - **Runtime**: Node.js
 - **Framework**: Express.js
@@ -45,7 +45,7 @@ This backend is responsible for:
 
 ---
 
-## 📦 NPM Packages Used
+## NPM Packages Used
 
 ### Backend
 
@@ -60,7 +60,7 @@ This backend is responsible for:
 
 ---
 
-## 🛠️ Installation & Local Development
+## Installation & Local Development
 
 1. **Clone the repository**:
     ```bash
@@ -90,7 +90,7 @@ This backend is responsible for:
 
 ---
 
-## 🚀 Deployment
+## Deployment
 
 1. **Install Vercel CLI (if not already):**
     ```bash
@@ -109,19 +109,19 @@ This backend is responsible for:
 
 ---
 
-## 📬 Contact
+## Contact
 
 For issues or suggestions, please contact: ameerhamzah.daiyan@gmail.com
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License.
 
 ---
 
-## ✨ Acknowledgements
+## Acknowledgements
 
 Thanks to Firebase, Stripe, and the Node.js ecosystem for powering this project.
 
